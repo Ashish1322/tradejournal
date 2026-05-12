@@ -41,6 +41,11 @@ const DEFAULT_FORM = {
   source: 'Self',
 }
 
+const DEFAULT_LEARNING_FORM = {
+  date: new Date().toISOString().slice(0, 10),
+  note: '',
+}
+
 function toDateKey(dateInput) {
   const date = new Date(dateInput)
   const year = date.getFullYear()
@@ -103,11 +108,28 @@ function readLocalTrades() {
   }
 }
 
+function readLocalLearnings() {
+  try {
+    const localData = localStorage.getItem('trade-journal-learnings')
+    if (!localData) {
+      return []
+    }
+
+    const parsedLearnings = JSON.parse(localData)
+    return Array.isArray(parsedLearnings) ? parsedLearnings : []
+  } catch {
+    return []
+  }
+}
+
 function App() {
   const [trades, setTrades] = useState(() => (firebaseEnabled ? [] : readLocalTrades()))
+  const [learnings, setLearnings] = useState(() => (firebaseEnabled ? [] : readLocalLearnings()))
   const [form, setForm] = useState(DEFAULT_FORM)
+  const [learningForm, setLearningForm] = useState(DEFAULT_LEARNING_FORM)
   const [selectedDate, setSelectedDate] = useState(new Date())
   const [isSaving, setIsSaving] = useState(false)
+  const [isSavingLearning, setIsSavingLearning] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
   const [showTradeForm, setShowTradeForm] = useState(false)
 
@@ -139,6 +161,35 @@ function App() {
       localStorage.setItem('trade-journal-trades', JSON.stringify(trades))
     }
   }, [trades])
+
+  useEffect(() => {
+    if (firebaseEnabled) {
+      const learningsRef = collection(db, 'learnings')
+      const learningsQuery = query(learningsRef, orderBy('date', 'desc'))
+
+      const unsubscribe = onSnapshot(
+        learningsQuery,
+        (snapshot) => {
+          const nextLearnings = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+          setLearnings(nextLearnings)
+        },
+        (e) => {
+          setErrorMessage('Unable to read learning notes from Firebase.')
+          console.log(e)
+        },
+      )
+
+      return () => unsubscribe()
+    }
+
+    return undefined
+  }, [])
+
+  useEffect(() => {
+    if (!firebaseEnabled) {
+      localStorage.setItem('trade-journal-learnings', JSON.stringify(learnings))
+    }
+  }, [learnings])
 
   const tradesByDate = useMemo(() => {
     return trades.reduce((acc, trade) => {
@@ -172,6 +223,34 @@ function App() {
   const losingTrades = useMemo(() => trades.filter((trade) => Number(trade.pnl) < 0).length, [trades])
   const winRate = totalTrades ? (winningTrades / totalTrades) * 100 : 0
   const averageTradePnl = totalTrades ? totalPnl / totalTrades : 0
+  const averageWinningTradePnl = useMemo(() => {
+    const wins = trades.filter((trade) => Number(trade.pnl) > 0)
+    if (!wins.length) {
+      return 0
+    }
+
+    const winsTotal = wins.reduce((sum, trade) => sum + Number(trade.pnl || 0), 0)
+    return winsTotal / wins.length
+  }, [trades])
+
+  const averageLosingTradePnl = useMemo(() => {
+    const losses = trades.filter((trade) => Number(trade.pnl) < 0)
+    if (!losses.length) {
+      return 0
+    }
+
+    const lossesTotal = losses.reduce((sum, trade) => sum + Math.abs(Number(trade.pnl || 0)), 0)
+    return lossesTotal / losses.length
+  }, [trades])
+
+  const rrRatio = useMemo(() => {
+    if (!averageWinningTradePnl || !averageLosingTradePnl) {
+      return null
+    }
+
+    return averageWinningTradePnl / averageLosingTradePnl
+  }, [averageWinningTradePnl, averageLosingTradePnl])
+
   const averagePoints = useMemo(() => {
     if (!totalTrades) {
       return 0
@@ -256,6 +335,10 @@ function App() {
     return { bestDay, worstDay }
   }, [dailyPnlData])
 
+  const learningTableData = useMemo(() => {
+    return [...learnings].sort((a, b) => b.date.localeCompare(a.date))
+  }, [learnings])
+
   function handleFieldChange(event) {
     const { name, value } = event.target
 
@@ -311,6 +394,52 @@ function App() {
       setErrorMessage('Trade could not be saved. Please try again.')
     } finally {
       setIsSaving(false)
+    }
+  }
+
+  function handleLearningFieldChange(event) {
+    const { name, value } = event.target
+    setLearningForm((prev) => ({ ...prev, [name]: value }))
+  }
+
+  async function handleAddLearning(event) {
+    event.preventDefault()
+    setErrorMessage('')
+
+    const trimmedNote = learningForm.note.trim()
+    if (!trimmedNote) {
+      setErrorMessage('Learning note cannot be empty.')
+      return
+    }
+
+    const learningToSave = {
+      date: learningForm.date,
+      note: trimmedNote,
+      createdAt: new Date().toISOString(),
+    }
+
+    try {
+      setIsSavingLearning(true)
+      if (firebaseEnabled) {
+        await addDoc(collection(db, 'learnings'), {
+          ...learningToSave,
+          createdAt: serverTimestamp(),
+        })
+      } else {
+        setLearnings((prev) => [
+          {
+            id: crypto.randomUUID(),
+            ...learningToSave,
+          },
+          ...prev,
+        ])
+      }
+
+      setLearningForm((prev) => ({ ...prev, note: '' }))
+    } catch {
+      setErrorMessage('Learning note could not be saved. Please try again.')
+    } finally {
+      setIsSavingLearning(false)
     }
   }
 
@@ -517,6 +646,10 @@ function App() {
                 {formatCurrency(averageTradePnl)}
               </p>
             </article>
+            <article className="stat-card">
+              <h3>R:R Ratio</h3>
+              <p>{rrRatio ? `1 : ${rrRatio.toFixed(2)}` : '-'}</p>
+            </article>
           </div>
 
           <div className="chart-wrap">
@@ -700,6 +833,62 @@ function App() {
               </div>
             )}
           </div>
+        </section>
+
+        <section className="panel learning-panel">
+          <h2>Daily Learning Notes</h2>
+          <form className="learning-form" onSubmit={handleAddLearning}>
+            <label>
+              Date
+              <input
+                type="date"
+                name="date"
+                value={learningForm.date}
+                onChange={handleLearningFieldChange}
+                required
+              />
+            </label>
+
+            <label className="learning-note-field">
+              Learning Note
+              <textarea
+                name="note"
+                rows="3"
+                value={learningForm.note}
+                onChange={handleLearningFieldChange}
+                placeholder="What did you learn from today's trading?"
+                required
+              />
+            </label>
+
+            <button type="submit" disabled={isSavingLearning}>
+              {isSavingLearning ? 'Saving...' : 'Save Learning'}
+            </button>
+          </form>
+
+          <h3>All Learnings</h3>
+          {learningTableData.length === 0 ? (
+            <p>No learning notes added yet.</p>
+          ) : (
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Learning</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {learningTableData.map((learning, index) => (
+                    <tr key={learning.id || `${learning.date}-${index}`}>
+                      <td>{learning.date}</td>
+                      <td>{learning.note}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </section>
       </main>
     </div>

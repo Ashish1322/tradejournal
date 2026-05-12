@@ -238,6 +238,53 @@
   overflow-x: auto;
 }
 
+.learning-panel {
+  grid-column: 1 / -1;
+}
+
+.learning-form {
+  display: grid;
+  grid-template-columns: 220px 1fr auto;
+  gap: 0.7rem;
+  align-items: end;
+  margin-bottom: 0.8rem;
+}
+
+.learning-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.9rem;
+  color: #2f3d4f;
+}
+
+.learning-note-field {
+  min-width: 0;
+}
+
+.learning-form input,
+.learning-form textarea,
+.learning-form button {
+  border: 1px solid #c7d1dc;
+  border-radius: 10px;
+  padding: 0.6rem 0.7rem;
+  font-size: 0.95rem;
+  font-family: inherit;
+}
+
+.learning-form textarea {
+  resize: vertical;
+}
+
+.learning-form button {
+  border: none;
+  background: linear-gradient(135deg, #1e6d52, #0f8765);
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+  min-height: 42px;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
@@ -267,6 +314,7 @@ td {
 
   .stats-grid,
   .trade-form,
+  .learning-form,
   .double-chart,
   .snapshot-row {
     grid-template-columns: 1fr;
