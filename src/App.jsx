@@ -335,6 +335,221 @@ function App() {
     return { bestDay, worstDay }
   }, [dailyPnlData])
 
+  const streakData = useMemo(() => {
+    if (!dailyPnlData.length) {
+      return {
+        currentWinStreak: 0,
+        longestWinStreak: 0,
+        currentLossStreak: 0,
+        longestLossStreak: 0,
+        maxConsecutiveLosingDays: 0,
+      }
+    }
+
+    let currentStreak = 0
+    let currentStreakType = null
+    let longestWinStreak = 0
+    let longestLossStreak = 0
+    let maxConsecutiveLosingDays = 0
+    let currentLossingDays = 0
+
+    dailyPnlData.forEach((day) => {
+      const isWin = day.pnl > 0
+      const isLoss = day.pnl < 0
+
+      if (isWin) {
+        currentLossingDays = 0
+        if (currentStreakType === 'win') {
+          currentStreak += 1
+        } else {
+          if (currentStreakType === 'loss') {
+            longestLossStreak = Math.max(longestLossStreak, currentStreak)
+          }
+          currentStreak = 1
+          currentStreakType = 'win'
+        }
+      } else if (isLoss) {
+        currentLossingDays += 1
+        maxConsecutiveLosingDays = Math.max(maxConsecutiveLosingDays, currentLossingDays)
+        if (currentStreakType === 'loss') {
+          currentStreak += 1
+        } else {
+          if (currentStreakType === 'win') {
+            longestWinStreak = Math.max(longestWinStreak, currentStreak)
+          }
+          currentStreak = 1
+          currentStreakType = 'loss'
+        }
+      }
+    })
+
+    if (currentStreakType === 'win') {
+      longestWinStreak = Math.max(longestWinStreak, currentStreak)
+    } else if (currentStreakType === 'loss') {
+      longestLossStreak = Math.max(longestLossStreak, currentStreak)
+    }
+
+    return {
+      currentWinStreak: currentStreakType === 'win' ? currentStreak : 0,
+      longestWinStreak,
+      currentLossStreak: currentStreakType === 'loss' ? currentStreak : 0,
+      longestLossStreak,
+      maxConsecutiveLosingDays,
+    }
+  }, [dailyPnlData])
+
+  const profitFactor = useMemo(() => {
+    const totalWins = trades
+      .filter((trade) => Number(trade.pnl) > 0)
+      .reduce((sum, trade) => sum + Number(trade.pnl), 0)
+
+    const totalLosses = Math.abs(
+      trades
+        .filter((trade) => Number(trade.pnl) < 0)
+        .reduce((sum, trade) => sum + Number(trade.pnl), 0),
+    )
+
+    if (totalLosses === 0) {
+      return totalWins > 0 ? 'Infinite' : '-'
+    }
+
+    return (totalWins / totalLosses).toFixed(2)
+  }, [trades])
+
+  const setupPerformance = useMemo(() => {
+    const setupMap = {}
+    SETUP_OPTIONS.forEach((setup) => {
+      setupMap[setup] = {
+        trades: 0,
+        wins: 0,
+        losses: 0,
+        totalPnl: 0,
+        winRate: 0,
+      }
+    })
+
+    trades.forEach((trade) => {
+      const setup = setupMap[trade.setup] || {
+        trades: 0,
+        wins: 0,
+        losses: 0,
+        totalPnl: 0,
+        winRate: 0,
+      }
+      setup.trades += 1
+      setup.totalPnl += Number(trade.pnl || 0)
+      if (Number(trade.pnl) > 0) {
+        setup.wins += 1
+      } else if (Number(trade.pnl) < 0) {
+        setup.losses += 1
+      }
+      setup.winRate = setup.trades > 0 ? (setup.wins / setup.trades) * 100 : 0
+      setupMap[trade.setup] = setup
+    })
+
+    return Object.entries(setupMap)
+      .map(([setup, data]) => ({
+        setup,
+        ...data,
+      }))
+      .filter((item) => item.trades > 0)
+  }, [trades])
+
+  const scriptPerformance = useMemo(() => {
+    const scriptMap = {}
+    SCRIPT_OPTIONS.forEach((script) => {
+      scriptMap[script] = {
+        trades: 0,
+        wins: 0,
+        losses: 0,
+        totalPnl: 0,
+        winRate: 0,
+      }
+    })
+
+    trades.forEach((trade) => {
+      const script = scriptMap[trade.script] || {
+        trades: 0,
+        wins: 0,
+        losses: 0,
+        totalPnl: 0,
+        winRate: 0,
+      }
+      script.trades += 1
+      script.totalPnl += Number(trade.pnl || 0)
+      if (Number(trade.pnl) > 0) {
+        script.wins += 1
+      } else if (Number(trade.pnl) < 0) {
+        script.losses += 1
+      }
+      script.winRate = script.trades > 0 ? (script.wins / script.trades) * 100 : 0
+      scriptMap[trade.script] = script
+    })
+
+    return Object.entries(scriptMap)
+      .map(([script, data]) => ({
+        script,
+        ...data,
+      }))
+      .filter((item) => item.trades > 0)
+  }, [trades])
+
+  const monthlyPerformance = useMemo(() => {
+    const monthMap = {}
+
+    trades.forEach((trade) => {
+      const date = new Date(trade.date)
+      const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+
+      if (!monthMap[monthKey]) {
+        monthMap[monthKey] = {
+          month: monthKey,
+          pnl: 0,
+          trades: 0,
+          wins: 0,
+          losses: 0,
+          winRate: 0,
+          tradingDays: new Set(),
+        }
+      }
+
+      monthMap[monthKey].trades += 1
+      monthMap[monthKey].pnl += Number(trade.pnl || 0)
+      monthMap[monthKey].tradingDays.add(trade.date)
+      if (Number(trade.pnl) > 0) {
+        monthMap[monthKey].wins += 1
+      } else if (Number(trade.pnl) < 0) {
+        monthMap[monthKey].losses += 1
+      }
+      monthMap[monthKey].winRate = (monthMap[monthKey].wins / monthMap[monthKey].trades) * 100
+    })
+
+    return Object.values(monthMap)
+      .map((month) => ({
+        ...month,
+        tradingDays: month.tradingDays.size,
+      }))
+      .sort((a, b) => b.month.localeCompare(a.month))
+  }, [trades])
+
+  const profitableVsUnprofitableDays = useMemo(() => {
+    let profitableDays = 0
+    let unprofitableDays = 0
+    let breakEvenDays = 0
+
+    dailyPnlData.forEach((day) => {
+      if (day.pnl > 0) {
+        profitableDays += 1
+      } else if (day.pnl < 0) {
+        unprofitableDays += 1
+      } else {
+        breakEvenDays += 1
+      }
+    })
+
+    return { profitableDays, unprofitableDays, breakEvenDays }
+  }, [dailyPnlData])
+
   const learningTableData = useMemo(() => {
     return [...learnings].sort((a, b) => b.date.localeCompare(a.date))
   }, [learnings])
@@ -625,6 +840,44 @@ function App() {
               <p className={totalPnl >= 0 ? 'positive' : 'negative'}>{formatCurrency(totalPnl)}</p>
             </article>
             <article className="stat-card">
+              <h3>Win Rate</h3>
+              <p>{winRate.toFixed(1)}%</p>
+            </article>
+            <article className="stat-card">
+              <h3>Profit Factor</h3>
+              <p className={profitFactor !== '-' && profitFactor !== 'Infinite' && Number(profitFactor) > 1 ? 'positive' : 'negative'}>
+                {profitFactor}
+              </p>
+            </article>
+            <article className="stat-card">
+              <h3>R:R Ratio</h3>
+              <p>{rrRatio ? `1 : ${rrRatio.toFixed(2)}` : '-'}</p>
+            </article>
+            <article className="stat-card">
+              <h3>Current Win Streak</h3>
+              <p className="positive">{streakData.currentWinStreak}</p>
+            </article>
+            <article className="stat-card">
+              <h3>Longest Win Streak</h3>
+              <p className="positive">{streakData.longestWinStreak}</p>
+            </article>
+            <article className="stat-card">
+              <h3>Current Loss Streak</h3>
+              <p className="negative">{streakData.currentLossStreak}</p>
+            </article>
+            <article className="stat-card">
+              <h3>Max Consecutive Losses</h3>
+              <p className="negative">{streakData.maxConsecutiveLosingDays}</p>
+            </article>
+            <article className="stat-card">
+              <h3>Profitable Days</h3>
+              <p className="positive">{profitableVsUnprofitableDays.profitableDays}</p>
+            </article>
+            <article className="stat-card">
+              <h3>Unprofitable Days</h3>
+              <p className="negative">{profitableVsUnprofitableDays.unprofitableDays}</p>
+            </article>
+            <article className="stat-card">
               <h3>Rules Followed Days</h3>
               <p>{ruleStats.followed}</p>
             </article>
@@ -637,18 +890,14 @@ function App() {
               <p>{totalTrades}</p>
             </article>
             <article className="stat-card">
-              <h3>Win Rate</h3>
-              <p>{winRate.toFixed(1)}%</p>
-            </article>
-            <article className="stat-card">
               <h3>Average Trade PnL</h3>
               <p className={averageTradePnl >= 0 ? 'positive' : 'negative'}>
                 {formatCurrency(averageTradePnl)}
               </p>
             </article>
             <article className="stat-card">
-              <h3>R:R Ratio</h3>
-              <p>{rrRatio ? `1 : ${rrRatio.toFixed(2)}` : '-'}</p>
+              <h3>Average Points</h3>
+              <p>{averagePoints.toFixed(2)}</p>
             </article>
           </div>
 
@@ -728,36 +977,104 @@ function App() {
             </ResponsiveContainer>
           </div>
 
-          <div className="snapshot-row">
-            <article className="snapshot-card">
-              <h3>Winning Trades</h3>
-              <p>{winningTrades}</p>
-            </article>
-            <article className="snapshot-card">
-              <h3>Losing Trades</h3>
-              <p>{losingTrades}</p>
-            </article>
-            <article className="snapshot-card">
-              <h3>Average Points</h3>
-              <p>{averagePoints.toFixed(2)}</p>
-            </article>
-            <article className="snapshot-card">
-              <h3>Best Day</h3>
-              <p>
-                {bestAndWorstDay.bestDay
-                  ? `${bestAndWorstDay.bestDay.date} (${formatCurrency(bestAndWorstDay.bestDay.pnl)})`
-                  : '-'}
-              </p>
-            </article>
-            <article className="snapshot-card">
-              <h3>Worst Day</h3>
-              <p>
-                {bestAndWorstDay.worstDay
-                  ? `${bestAndWorstDay.worstDay.date} (${formatCurrency(bestAndWorstDay.worstDay.pnl)})`
-                  : '-'}
-              </p>
-            </article>
+          <div className="chart-wrap">
+            <h3>Setup Performance</h3>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Setup</th>
+                    <th>Trades</th>
+                    <th>Wins</th>
+                    <th>Losses</th>
+                    <th>Win Rate</th>
+                    <th>Total PnL</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {setupPerformance.map((setup) => (
+                    <tr key={setup.setup}>
+                      <td>{setup.setup}</td>
+                      <td>{setup.trades}</td>
+                      <td className="positive">{setup.wins}</td>
+                      <td className="negative">{setup.losses}</td>
+                      <td>{setup.winRate.toFixed(1)}%</td>
+                      <td className={setup.totalPnl >= 0 ? 'positive' : 'negative'}>
+                        {formatCurrency(setup.totalPnl)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
+
+          <div className="chart-wrap">
+            <h3>Script Performance</h3>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Script</th>
+                    <th>Trades</th>
+                    <th>Wins</th>
+                    <th>Losses</th>
+                    <th>Win Rate</th>
+                    <th>Total PnL</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {scriptPerformance.map((script) => (
+                    <tr key={script.script}>
+                      <td>{script.script}</td>
+                      <td>{script.trades}</td>
+                      <td className="positive">{script.wins}</td>
+                      <td className="negative">{script.losses}</td>
+                      <td>{script.winRate.toFixed(1)}%</td>
+                      <td className={script.totalPnl >= 0 ? 'positive' : 'negative'}>
+                        {formatCurrency(script.totalPnl)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="chart-wrap">
+            <h3>Monthly Performance Summary</h3>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Month</th>
+                    <th>Trading Days</th>
+                    <th>Trades</th>
+                    <th>Wins</th>
+                    <th>Losses</th>
+                    <th>Win Rate</th>
+                    <th>Total PnL</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {monthlyPerformance.map((month) => (
+                    <tr key={month.month}>
+                      <td>{month.month}</td>
+                      <td>{month.tradingDays}</td>
+                      <td>{month.trades}</td>
+                      <td className="positive">{month.wins}</td>
+                      <td className="negative">{month.losses}</td>
+                      <td>{month.winRate.toFixed(1)}%</td>
+                      <td className={month.pnl >= 0 ? 'positive' : 'negative'}>
+                        {formatCurrency(month.pnl)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
         </section>
 
         <section className="panel calendar-panel">
