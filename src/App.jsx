@@ -31,6 +31,68 @@ const SCRIPT_OPTIONS = ['GOLD', 'BTC']
 const SETUP_OPTIONS = ['OHCL', 'Trap/Reversal Zone', 'Live Stream']
 const SOURCE_OPTIONS = ['Self', 'Live Stream']
 
+const CHART = {
+  grid: 'rgba(255,255,255,0.06)',
+  axis: '#5c6d82',
+  profit: '#22c55e',
+  loss: '#ef4444',
+  accent: '#3b9eff',
+  tooltip: {
+    background: '#161d28',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: 8,
+    color: '#f0f4f8',
+    fontSize: 13,
+  },
+}
+
+const TABS = [
+  { id: 'dashboard', label: 'Dashboard' },
+  { id: 'calendar', label: 'Calendar' },
+  { id: 'trade', label: 'Log Trade' },
+  { id: 'learnings', label: 'Learnings' },
+]
+
+function IconChart() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <path d="M2 12 L6 8 L9 10 L14 4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function IconCalendar() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <rect x="2" y="3" width="12" height="11" rx="1.5" />
+      <path d="M2 6.5h12M5.5 1.5v2M10.5 1.5v2" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function IconPlus() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <path d="M8 3v10M3 8h10" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function IconBook() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <path d="M3 2.5h4a2 2 0 0 1 2 2V13.5a2 2 0 0 0-2-2H3zM13 2.5H9a2 2 0 0 0-2 2V13.5a2 2 0 0 1 2-2h4z" />
+    </svg>
+  )
+}
+
+const TAB_ICONS = {
+  dashboard: IconChart,
+  calendar: IconCalendar,
+  trade: IconPlus,
+  learnings: IconBook,
+}
+
 const DEFAULT_FORM = {
   date: new Date().toISOString().slice(0, 10),
   script: 'GOLD',
@@ -131,7 +193,7 @@ function App() {
   const [isSaving, setIsSaving] = useState(false)
   const [isSavingLearning, setIsSavingLearning] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
-  const [showTradeForm, setShowTradeForm] = useState(false)
+  const [activeTab, setActiveTab] = useState('dashboard')
 
   useEffect(() => {
     if (firebaseEnabled) {
@@ -272,7 +334,7 @@ function App() {
     return Object.entries(setupMap).map(([setup, pnl]) => ({
       setup,
       pnl,
-      fill: pnl >= 0 ? '#2e8b57' : '#cf3b2f',
+      fill: pnl >= 0 ? CHART.profit : CHART.loss,
     }))
   }, [trades])
 
@@ -604,7 +666,7 @@ function App() {
 
       setForm({ ...DEFAULT_FORM, date: form.date })
       setSelectedDate(new Date(form.date))
-      setShowTradeForm(false)
+      setActiveTab('calendar')
     } catch {
       setErrorMessage('Trade could not be saved. Please try again.')
     } finally {
@@ -667,7 +729,11 @@ function App() {
     setSelectedDate(value)
   }
 
-  function tileClassName({ date, view }) {
+  function getDayPnl(dayTrades) {
+    return dayTrades.reduce((sum, trade) => sum + Number(trade.pnl || 0), 0)
+  }
+
+  function rulesTileClassName({ date, view }) {
     if (view !== 'month') {
       return null
     }
@@ -680,179 +746,132 @@ function App() {
     return dayEvaluationMap[key].followed ? 'tile-followed' : 'tile-broken'
   }
 
-  function tileContent({ date, view }) {
+  function pnlTileClassName({ date, view }) {
     if (view !== 'month') {
       return null
     }
 
     const key = toDateKey(date)
     const dayTrades = tradesByDate[key]
-
     if (!dayTrades?.length) {
       return null
     }
 
-    const dayPnl = dayTrades.reduce((sum, trade) => sum + Number(trade.pnl || 0), 0)
-    return <p className="tile-pnl">{dayPnl >= 0 ? '+' : ''}{dayPnl}</p>
+    const dayPnl = getDayPnl(dayTrades)
+    if (dayPnl > 0) {
+      return 'tile-profitable'
+    }
+    if (dayPnl < 0) {
+      return 'tile-unprofitable'
+    }
+    return 'tile-breakeven'
   }
+
+  function pnlTileContent({ date, view }) {
+    if (view !== 'month') {
+      return null
+    }
+
+    const key = toDateKey(date)
+    const dayTrades = tradesByDate[key]
+    if (!dayTrades?.length) {
+      return null
+    }
+
+    const dayPnl = getDayPnl(dayTrades)
+    const formatted =
+      Math.abs(dayPnl) >= 1000
+        ? `${dayPnl >= 0 ? '+' : ''}${(dayPnl / 1000).toFixed(1)}k`
+        : `${dayPnl >= 0 ? '+' : ''}${dayPnl}`
+
+    return (
+      <p className={`tile-pnl ${dayPnl >= 0 ? 'positive' : dayPnl < 0 ? 'negative' : ''}`}>
+        {formatted}
+      </p>
+    )
+  }
+
+  const selectedDayPnl = selectedDateTrades.reduce(
+    (sum, trade) => sum + Number(trade.pnl || 0),
+    0,
+  )
 
   return (
     <div className="app-shell">
       <header className="app-header">
-        <p className="eyebrow">Trading Journal</p>
-        <h1>Rule-First Trading Dashboard</h1>
-        <p className="subtitle">
-          Calendar color is based on your trading rules. PnL is shown day-wise and strategy-wise.
-        </p>
+        <div className="header-brand">
+          <div className="brand-icon">📈</div>
+          <div className="header-text">
+            <p className="eyebrow">Trade Journal</p>
+            <h1>Rule-First Dashboard</h1>
+            <p className="subtitle">Track trades, follow your rules, grow with discipline.</p>
+          </div>
+        </div>
+        <div className="header-pnl">
+          <p className="label">Total P&amp;L</p>
+          <p className={`value ${totalPnl >= 0 ? 'positive' : 'negative'}`}>
+            {formatCurrency(totalPnl)}
+          </p>
+        </div>
       </header>
 
       {!firebaseEnabled && (
         <section className="notice">
-          Firebase keys are missing. App is running with local browser storage.
+          ⚡ Firebase not configured — saving locally in your browser.
         </section>
       )}
 
-      {errorMessage && <section className="error-banner">{errorMessage}</section>}
+      {errorMessage && <section className="error-banner">⚠ {errorMessage}</section>}
 
-      <main className="layout-grid">
-        <section className="panel trade-panel">
-          <div className="panel-heading">
-            <h2>Add Trade Entry</h2>
+      <nav className="app-nav" aria-label="Main navigation">
+        {TABS.map((tab) => {
+          const Icon = TAB_ICONS[tab.id]
+          return (
             <button
+              key={tab.id}
               type="button"
-              className="toggle-form-btn"
-              onClick={() => setShowTradeForm((prev) => !prev)}
+              className={`nav-tab ${activeTab === tab.id ? 'active' : ''}`}
+              onClick={() => setActiveTab(tab.id)}
             >
-              {showTradeForm ? 'Close Entry' : '+ Add Trade'}
+              <Icon />
+              {tab.label}
             </button>
-          </div>
+          )
+        })}
+      </nav>
 
-          {showTradeForm && (
-            <form className="trade-form" onSubmit={handleAddTrade}>
-              <label>
-                Trade Date
-                <input
-                  type="date"
-                  name="date"
-                  value={form.date}
-                  onChange={handleFieldChange}
-                  required
-                />
-              </label>
+      <main className="app-main">
+        {activeTab === 'dashboard' && (
+          <div className="tab-panel dashboard-layout">
+            <div className="hero-stats">
+              <article className="hero-stat" style={{ '--stat-accent': CHART.profit, '--stat-bg': 'var(--profit-dim)' }}>
+                <div className="stat-icon">💰</div>
+                <p className="stat-label">Total P&amp;L</p>
+                <p className={`stat-value ${totalPnl >= 0 ? 'positive' : 'negative'}`}>{formatCurrency(totalPnl)}</p>
+              </article>
+              <article className="hero-stat" style={{ '--stat-accent': CHART.accent, '--stat-bg': 'var(--accent-dim)' }}>
+                <div className="stat-icon">🎯</div>
+                <p className="stat-label">Win Rate</p>
+                <p className="stat-value">{winRate.toFixed(1)}%</p>
+                <p className="stat-sub">{winningTrades}W / {losingTrades}L of {totalTrades}</p>
+              </article>
+              <article className="hero-stat" style={{ '--stat-accent': '#a78bfa', '--stat-bg': 'rgba(167,139,250,0.12)' }}>
+                <div className="stat-icon">📊</div>
+                <p className="stat-label">Profit Factor</p>
+                <p className={`stat-value ${profitFactor !== '-' && profitFactor !== 'Infinite' && Number(profitFactor) > 1 ? 'positive' : profitFactor === '-' ? '' : 'negative'}`}>{profitFactor}</p>
+              </article>
+              <article className="hero-stat" style={{ '--stat-accent': CHART.accent, '--stat-bg': 'var(--accent-dim)' }}>
+                <div className="stat-icon">⚖️</div>
+                <p className="stat-label">R:R Ratio</p>
+                <p className="stat-value">{rrRatio ? `1 : ${rrRatio.toFixed(2)}` : '—'}</p>
+              </article>
+            </div>
 
-              <label>
-                Script
-                <select name="script" value={form.script} onChange={handleFieldChange}>
-                  {SCRIPT_OPTIONS.map((script) => (
-                    <option key={script} value={script}>
-                      {script}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label>
-                Lot Size
-                <input
-                  type="number"
-                  min="0"
-                  step="1"
-                  name="lotSize"
-                  value={form.lotSize}
-                  onChange={handleFieldChange}
-                  required
-                />
-              </label>
-
-              <label>
-                Points Captured
-                <input
-                  type="number"
-                  step="0.01"
-                  name="pointsCaptured"
-                  value={form.pointsCaptured}
-                  onChange={handleFieldChange}
-                  required
-                />
-              </label>
-
-              <label>
-                Profit/Loss (PnL)
-                <input
-                  type="number"
-                  step="0.01"
-                  name="pnl"
-                  value={form.pnl}
-                  onChange={handleFieldChange}
-                  required
-                />
-              </label>
-
-              <label>
-                Setup
-                <select name="setup" value={form.setup} onChange={handleFieldChange}>
-                  {SETUP_OPTIONS.map((setup) => (
-                    <option key={setup} value={setup}>
-                      {setup}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label>
-                Trade Source
-                <select
-                  name="source"
-                  value={form.source}
-                  onChange={handleFieldChange}
-                  disabled={form.setup === 'Live Stream'}
-                >
-                  {SOURCE_OPTIONS.map((source) => (
-                    <option key={source} value={source}>
-                      {source}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <button type="submit" disabled={isSaving}>
-                {isSaving ? 'Saving...' : 'Save Trade'}
-              </button>
-            </form>
-          )}
-
-          <div className="rules-box">
-            <h3>Your Rules</h3>
-            <ul>
-              <li>GOLD must be 1 lot</li>
-              <li>Maximum 5 trades/day</li>
-              <li>Self trades: max 2/day</li>
-              <li>Live Stream trades: max 3/day</li>
-            </ul>
-          </div>
-        </section>
-
-        <section className="panel stats-panel">
-          <h2>Dashboard</h2>
-          <div className="stats-grid">
-            <article className="stat-card">
-              <h3>Total PnL Till Now</h3>
-              <p className={totalPnl >= 0 ? 'positive' : 'negative'}>{formatCurrency(totalPnl)}</p>
-            </article>
-            <article className="stat-card">
-              <h3>Win Rate</h3>
-              <p>{winRate.toFixed(1)}%</p>
-            </article>
-            <article className="stat-card">
-              <h3>Profit Factor</h3>
-              <p className={profitFactor !== '-' && profitFactor !== 'Infinite' && Number(profitFactor) > 1 ? 'positive' : 'negative'}>
-                {profitFactor}
-              </p>
-            </article>
-            <article className="stat-card">
-              <h3>R:R Ratio</h3>
-              <p>{rrRatio ? `1 : ${rrRatio.toFixed(2)}` : '-'}</p>
-            </article>
+            <div className="stats-section">
+              <div className="stats-section-header">
+                <h3>Performance Metrics</h3>
+              </div>
+              <div className="stats-grid">
             <article className="stat-card">
               <h3>Current Win Streak</h3>
               <p className="positive">{streakData.currentWinStreak}</p>
@@ -899,32 +918,34 @@ function App() {
               <h3>Average Points</h3>
               <p>{averagePoints.toFixed(2)}</p>
             </article>
-          </div>
+              </div>
+            </div>
 
-          <div className="chart-wrap">
-            <h3>PnL by Setup</h3>
-            <ResponsiveContainer width="100%" height={260}>
-              <BarChart data={setupPnlData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#cfd6df" />
-                <XAxis dataKey="setup" />
-                <YAxis />
-                <Tooltip formatter={(value) => formatCurrency(value)} />
-                <Legend />
+            <div className="charts-grid">
+              <div className="chart-card">
+                <h3>PnL by Setup</h3>
+                <ResponsiveContainer width="100%" height={260}>
+                  <BarChart data={setupPnlData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={CHART.grid} />
+                    <XAxis dataKey="setup" tick={{ fill: CHART.axis, fontSize: 11 }} />
+                    <YAxis tick={{ fill: CHART.axis, fontSize: 11 }} />
+                    <Tooltip formatter={(value) => formatCurrency(value)} contentStyle={CHART.tooltip} />
+                <Legend wrapperStyle={{ color: CHART.axis, fontSize: 12 }} />
                 <Bar dataKey="pnl" name="PnL">
                   {setupPnlData.map((entry) => (
                     <Cell key={entry.setup} fill={entry.fill} />
                   ))}
                 </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
 
-          <div className="chart-wrap double-chart">
-            <article className="mini-chart-card">
-              <h3>Trade Source Split</h3>
-              <ResponsiveContainer width="100%" height={220}>
-                <PieChart>
-                  <Tooltip />
+              <div className="double-chart">
+                <div className="chart-card">
+                  <h3>Trade Source Split</h3>
+                  <ResponsiveContainer width="100%" height={220}>
+                    <PieChart>
+                      <Tooltip contentStyle={CHART.tooltip} />
                   <Pie
                     data={sourceDistribution}
                     dataKey="value"
@@ -934,51 +955,52 @@ function App() {
                     outerRadius={70}
                     label
                   >
-                    {sourceDistribution.map((entry) => (
-                      <Cell key={entry.name} fill={entry.name === 'Self' ? '#1f7a43' : '#ce6f1d'} />
-                    ))}
-                  </Pie>
-                </PieChart>
-              </ResponsiveContainer>
-            </article>
+                      {sourceDistribution.map((entry) => (
+                        <Cell key={entry.name} fill={entry.name === 'Self' ? CHART.profit : '#fb923c'} />
+                      ))}
+                    </Pie>
+                  </PieChart>
+                </ResponsiveContainer>
+                </div>
 
-            <article className="mini-chart-card">
-              <h3>Recent Day PnL Trend</h3>
-              <ResponsiveContainer width="100%" height={220}>
-                <LineChart data={dailyPnlData.slice(-20)}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#d2d9e3" />
-                  <XAxis dataKey="date" tick={{ fontSize: 11 }} />
-                  <YAxis />
-                  <Tooltip formatter={(value) => formatCurrency(value)} />
-                  <Line type="monotone" dataKey="pnl" stroke="#214e8a" strokeWidth={2.5} />
-                </LineChart>
-              </ResponsiveContainer>
-            </article>
-          </div>
+                <div className="chart-card">
+                  <h3>Recent Day PnL Trend</h3>
+                  <ResponsiveContainer width="100%" height={220}>
+                    <LineChart data={dailyPnlData.slice(-20)}>
+                      <CartesianGrid strokeDasharray="3 3" stroke={CHART.grid} />
+                      <XAxis dataKey="date" tick={{ fill: CHART.axis, fontSize: 10 }} />
+                      <YAxis tick={{ fill: CHART.axis, fontSize: 11 }} />
+                      <Tooltip formatter={(value) => formatCurrency(value)} contentStyle={CHART.tooltip} />
+                      <Line type="monotone" dataKey="pnl" stroke={CHART.accent} strokeWidth={2.5} dot={false} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
 
-          <div className="chart-wrap">
-            <h3>Account Growth (Cumulative PnL)</h3>
-            <ResponsiveContainer width="100%" height={280}>
-              <LineChart data={accountGrowthData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#d2d9e3" />
-                <XAxis dataKey="date" tick={{ fontSize: 11 }} />
-                <YAxis />
-                <Tooltip formatter={(value) => formatCurrency(value)} />
-                <Line
-                  type="monotone"
-                  dataKey="equity"
-                  name="Account Growth"
-                  stroke="#0f7a62"
-                  strokeWidth={3}
-                  dot={{ r: 2 }}
-                  activeDot={{ r: 5 }}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
+              <div className="chart-card">
+                <h3>Account Growth (Cumulative PnL)</h3>
+                <ResponsiveContainer width="100%" height={280}>
+                  <LineChart data={accountGrowthData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={CHART.grid} />
+                    <XAxis dataKey="date" tick={{ fill: CHART.axis, fontSize: 10 }} />
+                    <YAxis tick={{ fill: CHART.axis, fontSize: 11 }} />
+                    <Tooltip formatter={(value) => formatCurrency(value)} contentStyle={CHART.tooltip} />
+                    <Line
+                      type="monotone"
+                      dataKey="equity"
+                      name="Account Growth"
+                      stroke={CHART.profit}
+                      strokeWidth={2.5}
+                      dot={false}
+                      activeDot={{ r: 5 }}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
 
-          <div className="chart-wrap">
-            <h3>Setup Performance</h3>
+              <div className="performance-tables">
+              <div className="chart-card">
+                <h3>Setup Performance</h3>
             <div className="table-wrap">
               <table>
                 <thead>
@@ -1009,8 +1031,8 @@ function App() {
             </div>
           </div>
 
-          <div className="chart-wrap">
-            <h3>Script Performance</h3>
+              <div className="chart-card">
+                <h3>Script Performance</h3>
             <div className="table-wrap">
               <table>
                 <thead>
@@ -1041,8 +1063,8 @@ function App() {
             </div>
           </div>
 
-          <div className="chart-wrap">
-            <h3>Monthly Performance Summary</h3>
+              <div className="chart-card">
+                <h3>Monthly Performance Summary</h3>
             <div className="table-wrap">
               <table>
                 <thead>
@@ -1072,141 +1094,254 @@ function App() {
                   ))}
                 </tbody>
               </table>
-            </div>
-          </div>
-
-        </section>
-
-        <section className="panel calendar-panel">
-          <h2>Trading Calendar</h2>
-          <p className="calendar-caption">
-            Green means rules followed, red means rules broken. Number is day PnL.
-          </p>
-
-          <Calendar
-            value={selectedDate}
-            onChange={handleCalendarChange}
-            tileClassName={tileClassName}
-            tileContent={tileContent}
-          />
-
-          <div className="selected-day-box">
-            <h3>{selectedDateKey} Summary</h3>
-            <p>
-              Day PnL:{' '}
-              <strong>
-                {formatCurrency(
-                  selectedDateTrades.reduce((sum, trade) => sum + Number(trade.pnl || 0), 0),
-                )}
-              </strong>
-            </p>
-
-            {selectedDateTrades.length > 0 && (
-              <p>
-                Rule status:{' '}
-                <strong className={selectedDateEvaluation.followed ? 'positive' : 'negative'}>
-                  {selectedDateEvaluation.followed ? 'Followed' : 'Broken'}
-                </strong>
-              </p>
-            )}
-
-            {!selectedDateEvaluation.followed && selectedDateTrades.length > 0 && (
-              <ul className="reason-list">
-                {selectedDateEvaluation.reasons.map((reason) => (
-                  <li key={reason}>{reason}</li>
-                ))}
-              </ul>
-            )}
-
-            <h4>Trades of Selected Day</h4>
-            {selectedDateTrades.length === 0 ? (
-              <p>No trades for this day.</p>
-            ) : (
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Script</th>
-                      <th>Lot</th>
-                      <th>Points</th>
-                      <th>PnL</th>
-                      <th>Setup</th>
-                      <th>Source</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {selectedDateTrades.map((trade) => (
-                      <tr key={trade.id}>
-                        <td>{trade.script}</td>
-                        <td>{trade.lotSize}</td>
-                        <td>{trade.pointsCaptured}</td>
-                        <td className={Number(trade.pnl) >= 0 ? 'positive' : 'negative'}>{trade.pnl}</td>
-                        <td>{trade.setup}</td>
-                        <td>{trade.source}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                </div>
               </div>
-            )}
-          </div>
-        </section>
-
-        <section className="panel learning-panel">
-          <h2>Daily Learning Notes</h2>
-          <form className="learning-form" onSubmit={handleAddLearning}>
-            <label>
-              Date
-              <input
-                type="date"
-                name="date"
-                value={learningForm.date}
-                onChange={handleLearningFieldChange}
-                required
-              />
-            </label>
-
-            <label className="learning-note-field">
-              Learning Note
-              <textarea
-                name="note"
-                rows="3"
-                value={learningForm.note}
-                onChange={handleLearningFieldChange}
-                placeholder="What did you learn from today's trading?"
-                required
-              />
-            </label>
-
-            <button type="submit" disabled={isSavingLearning}>
-              {isSavingLearning ? 'Saving...' : 'Save Learning'}
-            </button>
-          </form>
-
-          <h3>All Learnings</h3>
-          {learningTableData.length === 0 ? (
-            <p>No learning notes added yet.</p>
-          ) : (
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Date</th>
-                    <th>Learning</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {learningTableData.map((learning, index) => (
-                    <tr key={learning.id || `${learning.date}-${index}`}>
-                      <td>{learning.date}</td>
-                      <td>{learning.note}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              </div>
             </div>
-          )}
-        </section>
+          </div>
+        )}
+
+        {activeTab === 'trade' && (
+          <div className="tab-panel">
+            <div className="trade-layout">
+              <section className="panel">
+                <h2 className="panel-title">Log a Trade</h2>
+                <form className="trade-form" onSubmit={handleAddTrade}>
+                  <div className="form-group">
+                    <label htmlFor="trade-date">Trade Date</label>
+                    <input id="trade-date" type="date" name="date" value={form.date} onChange={handleFieldChange} required />
+                  </div>
+                  <div className="form-group">
+                    <label htmlFor="trade-script">Script</label>
+                    <select id="trade-script" name="script" value={form.script} onChange={handleFieldChange}>
+                      {SCRIPT_OPTIONS.map((script) => (
+                        <option key={script} value={script}>{script}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label htmlFor="trade-lot">Lot Size</label>
+                    <input id="trade-lot" type="number" min="0" step="1" name="lotSize" value={form.lotSize} onChange={handleFieldChange} required />
+                  </div>
+                  <div className="form-group">
+                    <label htmlFor="trade-points">Points Captured</label>
+                    <input id="trade-points" type="number" step="0.01" name="pointsCaptured" value={form.pointsCaptured} onChange={handleFieldChange} placeholder="e.g. 12.5" required />
+                  </div>
+                  <div className="form-group">
+                    <label htmlFor="trade-pnl">Profit / Loss (₹)</label>
+                    <input id="trade-pnl" type="number" step="0.01" name="pnl" value={form.pnl} onChange={handleFieldChange} placeholder="e.g. 2500" required />
+                  </div>
+                  <div className="form-group">
+                    <label htmlFor="trade-setup">Setup</label>
+                    <select id="trade-setup" name="setup" value={form.setup} onChange={handleFieldChange}>
+                      {SETUP_OPTIONS.map((setup) => (
+                        <option key={setup} value={setup}>{setup}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label htmlFor="trade-source">Trade Source</label>
+                    <select id="trade-source" name="source" value={form.source} onChange={handleFieldChange} disabled={form.setup === 'Live Stream'}>
+                      {SOURCE_OPTIONS.map((source) => (
+                        <option key={source} value={source}>{source}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <button type="submit" className="btn-primary" disabled={isSaving}>
+                    {isSaving ? 'Saving…' : 'Save Trade'}
+                  </button>
+                </form>
+              </section>
+              <aside className="rules-card">
+                <h3>📋 Your Trading Rules</h3>
+                <ul className="rules-list">
+                  <li><span className="rule-num">1</span> GOLD must always be 1 lot</li>
+                  <li><span className="rule-num">2</span> Maximum 5 trades per day</li>
+                  <li><span className="rule-num">3</span> Self trades: max 2 per day</li>
+                  <li><span className="rule-num">4</span> Live Stream trades: max 3 per day</li>
+                </ul>
+              </aside>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'calendar' && (
+          <div className="tab-panel">
+            <div className="calendar-layout">
+              <section className="panel calendar-panel-wide">
+                <h2 className="panel-title">Trading Calendars</h2>
+
+                <div className="dual-calendar-grid">
+                  <div className="calendar-block">
+                    <h3 className="calendar-block-title">Rules Calendar</h3>
+                    <p className="calendar-block-desc">Green = rules followed, red = rules broken</p>
+                    <div className="calendar-legend">
+                      <span className="legend-item">
+                        <span className="legend-dot followed" /> Followed
+                      </span>
+                      <span className="legend-item">
+                        <span className="legend-dot broken" /> Broken
+                      </span>
+                    </div>
+                    <Calendar
+                      value={selectedDate}
+                      onChange={handleCalendarChange}
+                      tileClassName={rulesTileClassName}
+                    />
+                  </div>
+
+                  <div className="calendar-block">
+                    <h3 className="calendar-block-title">P&amp;L Calendar</h3>
+                    <p className="calendar-block-desc">Green = profitable day, red = losing day</p>
+                    <div className="calendar-legend">
+                      <span className="legend-item">
+                        <span className="legend-dot profitable" /> Profitable
+                      </span>
+                      <span className="legend-item">
+                        <span className="legend-dot unprofitable" /> Loss
+                      </span>
+                      <span className="legend-item">Number = day P&amp;L</span>
+                    </div>
+                    <Calendar
+                      value={selectedDate}
+                      onChange={handleCalendarChange}
+                      tileClassName={pnlTileClassName}
+                      tileContent={pnlTileContent}
+                    />
+                  </div>
+                </div>
+              </section>
+
+              <aside className="day-summary">
+                <h3>{selectedDateKey}</h3>
+                <div className="summary-metrics">
+                  <div className="summary-metric">
+                    <p className="label">Day P&amp;L</p>
+                    <p className={`value ${selectedDayPnl >= 0 ? 'positive' : 'negative'}`}>
+                      {formatCurrency(selectedDayPnl)}
+                    </p>
+                  </div>
+                  <div className="summary-metric">
+                    <p className="label">Trades</p>
+                    <p className="value">{selectedDateTrades.length}</p>
+                  </div>
+                </div>
+
+                {selectedDateTrades.length > 0 && (
+                  <p>
+                    <span className={`status-badge ${selectedDateEvaluation.followed ? 'followed' : 'broken'}`}>
+                      {selectedDateEvaluation.followed ? '✓ Rules Followed' : '✗ Rules Broken'}
+                    </span>
+                  </p>
+                )}
+
+                {!selectedDateEvaluation.followed && selectedDateTrades.length > 0 && (
+                  <ul className="reason-list">
+                    {selectedDateEvaluation.reasons.map((reason) => (
+                      <li key={reason}>{reason}</li>
+                    ))}
+                  </ul>
+                )}
+
+                <h4>Trades</h4>
+                {selectedDateTrades.length === 0 ? (
+                  <div className="empty-state">
+                    <div className="empty-icon">📅</div>
+                    <p>No trades logged for this day.</p>
+                  </div>
+                ) : (
+                  <div className="table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Script</th>
+                          <th>Lot</th>
+                          <th>Pts</th>
+                          <th>P&amp;L</th>
+                          <th>Setup</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {selectedDateTrades.map((trade) => (
+                          <tr key={trade.id}>
+                            <td>
+                              <span className={`tag ${trade.script === 'GOLD' ? 'tag-gold' : 'tag-btc'}`}>
+                                {trade.script}
+                              </span>
+                            </td>
+                            <td className="mono">{trade.lotSize}</td>
+                            <td className="mono">{trade.pointsCaptured}</td>
+                            <td className={`mono ${Number(trade.pnl) >= 0 ? 'positive' : 'negative'}`}>
+                              {formatCurrency(trade.pnl)}
+                            </td>
+                            <td>{trade.setup}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </aside>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'learnings' && (
+          <div className="tab-panel learning-layout">
+            <section className="panel">
+              <h2 className="panel-title">Daily Learning Notes</h2>
+              <form className="learning-form" onSubmit={handleAddLearning}>
+                <div className="form-group">
+                  <label htmlFor="learning-date">Date</label>
+                  <input
+                    id="learning-date"
+                    type="date"
+                    name="date"
+                    value={learningForm.date}
+                    onChange={handleLearningFieldChange}
+                    required
+                  />
+                </div>
+                <div className="form-group">
+                  <label htmlFor="learning-note">What did you learn?</label>
+                  <textarea
+                    id="learning-note"
+                    name="note"
+                    rows="3"
+                    value={learningForm.note}
+                    onChange={handleLearningFieldChange}
+                    placeholder="Mistakes, wins, patterns to remember…"
+                    required
+                  />
+                </div>
+                <button type="submit" className="btn-primary" disabled={isSavingLearning}>
+                  {isSavingLearning ? 'Saving…' : 'Save Note'}
+                </button>
+              </form>
+            </section>
+
+            <section className="panel">
+              <h2 className="panel-title">
+                All Notes <span className="badge">{learningTableData.length}</span>
+              </h2>
+              {learningTableData.length === 0 ? (
+                <div className="empty-state">
+                  <div className="empty-icon">📝</div>
+                  <p>No learning notes yet. Start capturing your insights.</p>
+                </div>
+              ) : (
+                <div className="learning-cards">
+                  {learningTableData.map((learning, index) => (
+                    <article key={learning.id || `${learning.date}-${index}`} className="learning-card">
+                      <p className="date">{learning.date}</p>
+                      <p className="note">{learning.note}</p>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </section>
+          </div>
+        )}
       </main>
     </div>
   )
