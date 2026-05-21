@@ -93,27 +93,33 @@ const TAB_ICONS = {
   learnings: IconBook,
 }
 
-const DEFAULT_FORM = {
-  date: new Date().toISOString().slice(0, 10),
-  script: 'GOLD',
-  lotSize: 1,
-  pointsCaptured: '',
-  pnl: '',
-  setup: 'OHCL',
-  source: 'Self',
-}
-
-const DEFAULT_LEARNING_FORM = {
-  date: new Date().toISOString().slice(0, 10),
-  note: '',
-}
-
 function toDateKey(dateInput) {
   const date = new Date(dateInput)
   const year = date.getFullYear()
   const month = String(date.getMonth() + 1).padStart(2, '0')
   const day = String(date.getDate()).padStart(2, '0')
   return `${year}-${month}-${day}`
+}
+
+function getTodayDateKey() {
+  return toDateKey(new Date())
+}
+
+function getDefaultTradeForm(date = getTodayDateKey()) {
+  return {
+    date,
+    script: 'GOLD',
+    lotSize: 1,
+    pointsCaptured: '',
+    pnl: '',
+    setup: 'OHCL',
+    source: 'Self',
+  }
+}
+
+const DEFAULT_LEARNING_FORM = {
+  date: getTodayDateKey(),
+  note: '',
 }
 
 function evaluateDayRules(dayTrades) {
@@ -187,7 +193,7 @@ function readLocalLearnings() {
 function App() {
   const [trades, setTrades] = useState(() => (firebaseEnabled ? [] : readLocalTrades()))
   const [learnings, setLearnings] = useState(() => (firebaseEnabled ? [] : readLocalLearnings()))
-  const [form, setForm] = useState(DEFAULT_FORM)
+  const [form, setForm] = useState(() => getDefaultTradeForm())
   const [learningForm, setLearningForm] = useState(DEFAULT_LEARNING_FORM)
   const [selectedDate, setSelectedDate] = useState(new Date())
   const [isSaving, setIsSaving] = useState(false)
@@ -223,6 +229,12 @@ function App() {
       localStorage.setItem('trade-journal-trades', JSON.stringify(trades))
     }
   }, [trades])
+
+  useEffect(() => {
+    if (activeTab === 'trade') {
+      setForm((prev) => ({ ...prev, date: selectedDateKey }))
+    }
+  }, [activeTab])
 
   useEffect(() => {
     if (firebaseEnabled) {
@@ -627,6 +639,20 @@ function App() {
     setForm((prev) => ({ ...prev, [name]: value }))
   }
 
+  function setTradeDate(dateKey) {
+    setForm((prev) => ({ ...prev, date: dateKey }))
+  }
+
+  function setTradeDateToToday() {
+    setTradeDate(getTodayDateKey())
+  }
+
+  function setTradeDateToYesterday() {
+    const yesterday = new Date()
+    yesterday.setDate(yesterday.getDate() - 1)
+    setTradeDate(toDateKey(yesterday))
+  }
+
   async function handleAddTrade(event) {
     event.preventDefault()
     setErrorMessage('')
@@ -664,8 +690,8 @@ function App() {
         ])
       }
 
-      setForm({ ...DEFAULT_FORM, date: form.date })
-      setSelectedDate(new Date(form.date))
+      setForm(getDefaultTradeForm())
+      setSelectedDate(new Date(form.date + 'T12:00:00'))
       setActiveTab('calendar')
     } catch {
       setErrorMessage('Trade could not be saved. Please try again.')
@@ -1107,9 +1133,28 @@ function App() {
               <section className="panel">
                 <h2 className="panel-title">Log a Trade</h2>
                 <form className="trade-form" onSubmit={handleAddTrade}>
-                  <div className="form-group">
+                  <div className="form-group form-group-date full-width">
                     <label htmlFor="trade-date">Trade Date</label>
-                    <input id="trade-date" type="date" name="date" value={form.date} onChange={handleFieldChange} required />
+                    <p className="field-hint">Defaults to today. Pick any past date to backfill trades.</p>
+                    <div className="date-input-row">
+                      <input
+                        id="trade-date"
+                        type="date"
+                        name="date"
+                        value={form.date}
+                        onChange={handleFieldChange}
+                        max={getTodayDateKey()}
+                        required
+                      />
+                      <div className="date-quick-btns">
+                        <button type="button" className="btn-secondary" onClick={setTradeDateToToday}>
+                          Today
+                        </button>
+                        <button type="button" className="btn-secondary" onClick={setTradeDateToYesterday}>
+                          Yesterday
+                        </button>
+                      </div>
+                    </div>
                   </div>
                   <div className="form-group">
                     <label htmlFor="trade-script">Script</label>

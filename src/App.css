@@ -482,6 +482,48 @@ td.mono {
   grid-column: 1 / -1;
 }
 
+.form-group-date .field-hint {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.date-input-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: center;
+}
+
+.date-input-row input[type='date'] {
+  flex: 1;
+  min-width: 160px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: 0.65rem 0.8rem;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  color-scheme: dark;
+}
+
+.date-input-row input[type='date']:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
+
+.date-quick-btns {
+  display: flex;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.date-quick-btns .btn-secondary {
+  padding: 0.5rem 0.75rem;
+  font-size: 0.8rem;
+}
+
 .form-group label {
   font-size: 0.8rem;
   font-weight: 500;
