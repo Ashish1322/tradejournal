@@ -27,9 +27,19 @@ import './App.css'
 import 'react-calendar/dist/Calendar.css'
 import { db, firebaseEnabled } from './firebase'
 
-const SCRIPT_OPTIONS = ['GOLD', 'BTC']
-const SETUP_OPTIONS = ['OHCL', 'Trap/Reversal Zone', 'Live Stream']
-const SOURCE_OPTIONS = ['Self', 'Live Stream']
+const STRATEGIES = ['Self', 'Vinbull', 'Stock Learners']
+
+const STRATEGY_RULES = {
+  Self: { maxTradesPerDay: 3, maxLotSize: 2, maxLossPerTrade: 5 },
+  Vinbull: { maxTradesPerDay: 2, maxLotSize: 1, maxLossPerTrade: 15 },
+  'Stock Learners': { maxTradesPerDay: 3, maxLotSize: 4, maxLossPerTrade: 6 },
+}
+
+const STRATEGY_COLORS = {
+  Self: '#22c55e',
+  Vinbull: '#3b9eff',
+  'Stock Learners': '#a78bfa',
+}
 
 const CHART = {
   grid: 'rgba(255,255,255,0.06)',
@@ -105,15 +115,13 @@ function getTodayDateKey() {
   return toDateKey(new Date())
 }
 
-function getDefaultTradeForm(date = getTodayDateKey()) {
+function getDefaultTradeForm(date = getTodayDateKey(), strategy = 'Self') {
   return {
     date,
-    script: 'GOLD',
-    lotSize: 1,
+    strategy,
+    lotSize: STRATEGY_RULES[strategy].maxLotSize,
     pointsCaptured: '',
     pnl: '',
-    setup: 'OHCL',
-    source: 'Self',
   }
 }
 
@@ -122,31 +130,62 @@ const DEFAULT_LEARNING_FORM = {
   note: '',
 }
 
+function normalizeTrade(trade) {
+  let strategy = trade.strategy
+  if (!strategy || !STRATEGY_RULES[strategy]) {
+    strategy = 'Self'
+  }
+
+  return {
+    ...trade,
+    strategy,
+    lotSize: Number(trade.lotSize ?? STRATEGY_RULES[strategy].maxLotSize),
+    pnl: Number(trade.pnl ?? 0),
+    pointsCaptured: trade.pointsCaptured ?? '',
+  }
+}
+
+function normalizeTrades(tradeList) {
+  return tradeList.map(normalizeTrade)
+}
+
+function getTradeStrategy(trade) {
+  return normalizeTrade(trade).strategy
+}
+
 function evaluateDayRules(dayTrades) {
   if (!dayTrades.length) {
     return { followed: null, reasons: [] }
   }
 
-  const selfTrades = dayTrades.filter((trade) => trade.source === 'Self').length
-  const liveTrades = dayTrades.filter((trade) => trade.source === 'Live Stream').length
-  const invalidGoldLot = dayTrades.some(
-    (trade) => trade.script === 'GOLD' && Number(trade.lotSize) !== 1,
-  )
-
   const reasons = []
 
-  if (dayTrades.length > 5) {
-    reasons.push('More than 5 trades in one day')
-  }
-  if (selfTrades > 2) {
-    reasons.push('Self trades are more than 2')
-  }
-  if (liveTrades > 3) {
-    reasons.push('Live stream trades are more than 3')
-  }
-  if (invalidGoldLot) {
-    reasons.push('Gold trades must use lot size 1')
-  }
+  STRATEGIES.forEach((strategy) => {
+    const rules = STRATEGY_RULES[strategy]
+    const strategyTrades = dayTrades.filter((trade) => getTradeStrategy(trade) === strategy)
+
+    if (strategyTrades.length > rules.maxTradesPerDay) {
+      reasons.push(
+        `${strategy}: more than ${rules.maxTradesPerDay} trades (${strategyTrades.length} taken)`,
+      )
+    }
+
+    strategyTrades.forEach((trade) => {
+      const lotSize = Number(trade.lotSize)
+      if (lotSize > rules.maxLotSize) {
+        reasons.push(
+          `${strategy}: quantity exceeds max ${rules.maxLotSize} lots (took ${lotSize})`,
+        )
+      }
+
+      const pnl = Number(trade.pnl)
+      if (pnl < 0 && Math.abs(pnl) > rules.maxLossPerTrade) {
+        reasons.push(
+          `${strategy}: loss exceeded $${rules.maxLossPerTrade} (lost $${Math.abs(pnl).toFixed(2)})`,
+        )
+      }
+    })
+  })
 
   return {
     followed: reasons.length === 0,
@@ -155,9 +194,9 @@ function evaluateDayRules(dayTrades) {
 }
 
 function formatCurrency(value) {
-  return Number(value || 0).toLocaleString('en-IN', {
+  return Number(value || 0).toLocaleString('en-US', {
     style: 'currency',
-    currency: 'INR',
+    currency: 'USD',
     maximumFractionDigits: 2,
   })
 }
@@ -170,7 +209,7 @@ function readLocalTrades() {
     }
 
     const parsedTrades = JSON.parse(localData)
-    return Array.isArray(parsedTrades) ? parsedTrades : []
+    return Array.isArray(parsedTrades) ? normalizeTrades(parsedTrades) : []
   } catch {
     return []
   }
@@ -209,7 +248,7 @@ function App() {
       const unsubscribe = onSnapshot(
         tradesQuery,
         (snapshot) => {
-          const nextTrades = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+          const nextTrades = normalizeTrades(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })))
           setTrades(nextTrades)
         },
         (e) => {
@@ -334,17 +373,18 @@ function App() {
   }, [trades, totalTrades])
 
   const setupPnlData = useMemo(() => {
-    const setupMap = {}
-    SETUP_OPTIONS.forEach((setup) => {
-      setupMap[setup] = 0
+    const strategyMap = {}
+    STRATEGIES.forEach((strategy) => {
+      strategyMap[strategy] = 0
     })
 
     trades.forEach((trade) => {
-      setupMap[trade.setup] = (setupMap[trade.setup] || 0) + Number(trade.pnl || 0)
+      const strategy = getTradeStrategy(trade)
+      strategyMap[strategy] = (strategyMap[strategy] || 0) + Number(trade.pnl || 0)
     })
 
-    return Object.entries(setupMap).map(([setup, pnl]) => ({
-      setup,
+    return Object.entries(strategyMap).map(([strategy, pnl]) => ({
+      strategy,
       pnl,
       fill: pnl >= 0 ? CHART.profit : CHART.loss,
     }))
@@ -378,16 +418,33 @@ function App() {
     })
   }, [dailyPnlData])
 
-  const sourceDistribution = useMemo(() => {
-    const sourceMap = { Self: 0, 'Live Stream': 0 }
-    trades.forEach((trade) => {
-      sourceMap[trade.source] = (sourceMap[trade.source] || 0) + 1
+  const strategyDistribution = useMemo(() => {
+    const strategyMap = {}
+    STRATEGIES.forEach((strategy) => {
+      strategyMap[strategy] = 0
     })
 
-    return Object.entries(sourceMap).map(([name, value]) => ({
+    trades.forEach((trade) => {
+      const strategy = getTradeStrategy(trade)
+      strategyMap[strategy] = (strategyMap[strategy] || 0) + 1
+    })
+
+    return Object.entries(strategyMap).map(([name, value]) => ({
       name,
       value,
     }))
+  }, [trades])
+
+  const strategyPnlBreakdown = useMemo(() => {
+    return STRATEGIES.map((strategy) => {
+      const strategyTrades = trades.filter((trade) => getTradeStrategy(trade) === strategy)
+      const totalPnl = strategyTrades.reduce((sum, trade) => sum + Number(trade.pnl || 0), 0)
+      return {
+        strategy,
+        trades: strategyTrades.length,
+        totalPnl,
+      }
+    })
   }, [trades])
 
   const bestAndWorstDay = useMemo(() => {
@@ -490,10 +547,10 @@ function App() {
     return (totalWins / totalLosses).toFixed(2)
   }, [trades])
 
-  const setupPerformance = useMemo(() => {
-    const setupMap = {}
-    SETUP_OPTIONS.forEach((setup) => {
-      setupMap[setup] = {
+  const strategyPerformance = useMemo(() => {
+    const strategyMap = {}
+    STRATEGIES.forEach((strategy) => {
+      strategyMap[strategy] = {
         trades: 0,
         wins: 0,
         losses: 0,
@@ -503,66 +560,28 @@ function App() {
     })
 
     trades.forEach((trade) => {
-      const setup = setupMap[trade.setup] || {
+      const strategy = getTradeStrategy(trade)
+      const stats = strategyMap[strategy] || {
         trades: 0,
         wins: 0,
         losses: 0,
         totalPnl: 0,
         winRate: 0,
       }
-      setup.trades += 1
-      setup.totalPnl += Number(trade.pnl || 0)
+      stats.trades += 1
+      stats.totalPnl += Number(trade.pnl || 0)
       if (Number(trade.pnl) > 0) {
-        setup.wins += 1
+        stats.wins += 1
       } else if (Number(trade.pnl) < 0) {
-        setup.losses += 1
+        stats.losses += 1
       }
-      setup.winRate = setup.trades > 0 ? (setup.wins / setup.trades) * 100 : 0
-      setupMap[trade.setup] = setup
+      stats.winRate = stats.trades > 0 ? (stats.wins / stats.trades) * 100 : 0
+      strategyMap[strategy] = stats
     })
 
-    return Object.entries(setupMap)
-      .map(([setup, data]) => ({
-        setup,
-        ...data,
-      }))
-      .filter((item) => item.trades > 0)
-  }, [trades])
-
-  const scriptPerformance = useMemo(() => {
-    const scriptMap = {}
-    SCRIPT_OPTIONS.forEach((script) => {
-      scriptMap[script] = {
-        trades: 0,
-        wins: 0,
-        losses: 0,
-        totalPnl: 0,
-        winRate: 0,
-      }
-    })
-
-    trades.forEach((trade) => {
-      const script = scriptMap[trade.script] || {
-        trades: 0,
-        wins: 0,
-        losses: 0,
-        totalPnl: 0,
-        winRate: 0,
-      }
-      script.trades += 1
-      script.totalPnl += Number(trade.pnl || 0)
-      if (Number(trade.pnl) > 0) {
-        script.wins += 1
-      } else if (Number(trade.pnl) < 0) {
-        script.losses += 1
-      }
-      script.winRate = script.trades > 0 ? (script.wins / script.trades) * 100 : 0
-      scriptMap[trade.script] = script
-    })
-
-    return Object.entries(scriptMap)
-      .map(([script, data]) => ({
-        script,
+    return Object.entries(strategyMap)
+      .map(([strategy, data]) => ({
+        strategy,
         ...data,
       }))
       .filter((item) => item.trades > 0)
@@ -631,8 +650,12 @@ function App() {
   function handleFieldChange(event) {
     const { name, value } = event.target
 
-    if (name === 'setup' && value === 'Live Stream') {
-      setForm((prev) => ({ ...prev, setup: value, source: 'Live Stream' }))
+    if (name === 'strategy') {
+      setForm((prev) => ({
+        ...prev,
+        strategy: value,
+        lotSize: STRATEGY_RULES[value].maxLotSize,
+      }))
       return
     }
 
@@ -659,17 +682,20 @@ function App() {
 
     const tradeToSave = {
       date: form.date,
-      script: form.script,
+      strategy: form.strategy,
       lotSize: Number(form.lotSize),
-      pointsCaptured: Number(form.pointsCaptured),
+      pointsCaptured: form.pointsCaptured === '' ? '' : Number(form.pointsCaptured),
       pnl: Number(form.pnl),
-      setup: form.setup,
-      source: form.source,
       createdAt: new Date().toISOString(),
     }
 
-    if (Number.isNaN(tradeToSave.pointsCaptured) || Number.isNaN(tradeToSave.pnl)) {
-      setErrorMessage('Points and PnL must be valid numbers.')
+    if (tradeToSave.pointsCaptured !== '' && Number.isNaN(tradeToSave.pointsCaptured)) {
+      setErrorMessage('Points must be a valid number.')
+      return
+    }
+
+    if (Number.isNaN(tradeToSave.pnl)) {
+      setErrorMessage('P&L must be a valid number.')
       return
     }
 
@@ -690,7 +716,7 @@ function App() {
         ])
       }
 
-      setForm(getDefaultTradeForm())
+      setForm(getDefaultTradeForm(form.date, form.strategy))
       setSelectedDate(new Date(form.date + 'T12:00:00'))
       setActiveTab('calendar')
     } catch {
@@ -805,10 +831,10 @@ function App() {
     }
 
     const dayPnl = getDayPnl(dayTrades)
+    const prefix = dayPnl >= 0 ? '+$' : '-$'
+    const absVal = Math.abs(dayPnl)
     const formatted =
-      Math.abs(dayPnl) >= 1000
-        ? `${dayPnl >= 0 ? '+' : ''}${(dayPnl / 1000).toFixed(1)}k`
-        : `${dayPnl >= 0 ? '+' : ''}${dayPnl}`
+      absVal >= 1000 ? `${prefix}${(absVal / 1000).toFixed(1)}k` : `${prefix}${absVal.toFixed(0)}`
 
     return (
       <p className={`tile-pnl ${dayPnl >= 0 ? 'positive' : dayPnl < 0 ? 'negative' : ''}`}>
@@ -893,6 +919,22 @@ function App() {
               </article>
             </div>
 
+            <div className="strategy-pnl-row">
+              {strategyPnlBreakdown.map((item) => (
+                <article
+                  key={item.strategy}
+                  className="strategy-pnl-card"
+                  style={{ '--strategy-color': STRATEGY_COLORS[item.strategy] }}
+                >
+                  <p className="strategy-name">{item.strategy}</p>
+                  <p className={`strategy-pnl ${item.totalPnl >= 0 ? 'positive' : 'negative'}`}>
+                    {formatCurrency(item.totalPnl)}
+                  </p>
+                  <p className="strategy-trades">{item.trades} trades</p>
+                </article>
+              ))}
+            </div>
+
             <div className="stats-section">
               <div className="stats-section-header">
                 <h3>Performance Metrics</h3>
@@ -949,17 +991,17 @@ function App() {
 
             <div className="charts-grid">
               <div className="chart-card">
-                <h3>PnL by Setup</h3>
+                <h3>P&amp;L by Strategy</h3>
                 <ResponsiveContainer width="100%" height={260}>
                   <BarChart data={setupPnlData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke={CHART.grid} />
-                    <XAxis dataKey="setup" tick={{ fill: CHART.axis, fontSize: 11 }} />
+                    <XAxis dataKey="strategy" tick={{ fill: CHART.axis, fontSize: 11 }} />
                     <YAxis tick={{ fill: CHART.axis, fontSize: 11 }} />
                     <Tooltip formatter={(value) => formatCurrency(value)} contentStyle={CHART.tooltip} />
                 <Legend wrapperStyle={{ color: CHART.axis, fontSize: 12 }} />
-                <Bar dataKey="pnl" name="PnL">
+                <Bar dataKey="pnl" name="P&L">
                   {setupPnlData.map((entry) => (
-                    <Cell key={entry.setup} fill={entry.fill} />
+                    <Cell key={entry.strategy} fill={entry.fill} />
                   ))}
                 </Bar>
                   </BarChart>
@@ -968,12 +1010,12 @@ function App() {
 
               <div className="double-chart">
                 <div className="chart-card">
-                  <h3>Trade Source Split</h3>
+                  <h3>Trades by Strategy</h3>
                   <ResponsiveContainer width="100%" height={220}>
                     <PieChart>
                       <Tooltip contentStyle={CHART.tooltip} />
                   <Pie
-                    data={sourceDistribution}
+                    data={strategyDistribution}
                     dataKey="value"
                     nameKey="name"
                     cx="50%"
@@ -981,8 +1023,8 @@ function App() {
                     outerRadius={70}
                     label
                   >
-                      {sourceDistribution.map((entry) => (
-                        <Cell key={entry.name} fill={entry.name === 'Self' ? CHART.profit : '#fb923c'} />
+                      {strategyDistribution.map((entry) => (
+                        <Cell key={entry.name} fill={STRATEGY_COLORS[entry.name] || CHART.accent} />
                       ))}
                     </Pie>
                   </PieChart>
@@ -1026,61 +1068,29 @@ function App() {
 
               <div className="performance-tables">
               <div className="chart-card">
-                <h3>Setup Performance</h3>
+                <h3>Strategy Performance</h3>
             <div className="table-wrap">
               <table>
                 <thead>
                   <tr>
-                    <th>Setup</th>
+                    <th>Strategy</th>
                     <th>Trades</th>
                     <th>Wins</th>
                     <th>Losses</th>
                     <th>Win Rate</th>
-                    <th>Total PnL</th>
+                    <th>Total P&amp;L</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {setupPerformance.map((setup) => (
-                    <tr key={setup.setup}>
-                      <td>{setup.setup}</td>
-                      <td>{setup.trades}</td>
-                      <td className="positive">{setup.wins}</td>
-                      <td className="negative">{setup.losses}</td>
-                      <td>{setup.winRate.toFixed(1)}%</td>
-                      <td className={setup.totalPnl >= 0 ? 'positive' : 'negative'}>
-                        {formatCurrency(setup.totalPnl)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-              <div className="chart-card">
-                <h3>Script Performance</h3>
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Script</th>
-                    <th>Trades</th>
-                    <th>Wins</th>
-                    <th>Losses</th>
-                    <th>Win Rate</th>
-                    <th>Total PnL</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {scriptPerformance.map((script) => (
-                    <tr key={script.script}>
-                      <td>{script.script}</td>
-                      <td>{script.trades}</td>
-                      <td className="positive">{script.wins}</td>
-                      <td className="negative">{script.losses}</td>
-                      <td>{script.winRate.toFixed(1)}%</td>
-                      <td className={script.totalPnl >= 0 ? 'positive' : 'negative'}>
-                        {formatCurrency(script.totalPnl)}
+                  {strategyPerformance.map((row) => (
+                    <tr key={row.strategy}>
+                      <td>{row.strategy}</td>
+                      <td>{row.trades}</td>
+                      <td className="positive">{row.wins}</td>
+                      <td className="negative">{row.losses}</td>
+                      <td>{row.winRate.toFixed(1)}%</td>
+                      <td className={row.totalPnl >= 0 ? 'positive' : 'negative'}>
+                        {formatCurrency(row.totalPnl)}
                       </td>
                     </tr>
                   ))}
@@ -1157,40 +1167,40 @@ function App() {
                     </div>
                   </div>
                   <div className="form-group">
-                    <label htmlFor="trade-script">Script</label>
-                    <select id="trade-script" name="script" value={form.script} onChange={handleFieldChange}>
-                      {SCRIPT_OPTIONS.map((script) => (
-                        <option key={script} value={script}>{script}</option>
+                    <label htmlFor="trade-strategy">Strategy</label>
+                    <select id="trade-strategy" name="strategy" value={form.strategy} onChange={handleFieldChange}>
+                      {STRATEGIES.map((strategy) => (
+                        <option key={strategy} value={strategy}>{strategy}</option>
                       ))}
                     </select>
                   </div>
                   <div className="form-group">
-                    <label htmlFor="trade-lot">Lot Size</label>
-                    <input id="trade-lot" type="number" min="0" step="1" name="lotSize" value={form.lotSize} onChange={handleFieldChange} required />
+                    <label htmlFor="trade-lot">Quantity (Lots)</label>
+                    <input
+                      id="trade-lot"
+                      type="number"
+                      min="1"
+                      max={STRATEGY_RULES[form.strategy].maxLotSize}
+                      step="1"
+                      name="lotSize"
+                      value={form.lotSize}
+                      onChange={handleFieldChange}
+                      required
+                    />
+                    <p className="field-hint">
+                      Max {STRATEGY_RULES[form.strategy].maxLotSize} lot(s) for {form.strategy}
+                    </p>
                   </div>
                   <div className="form-group">
-                    <label htmlFor="trade-points">Points Captured</label>
-                    <input id="trade-points" type="number" step="0.01" name="pointsCaptured" value={form.pointsCaptured} onChange={handleFieldChange} placeholder="e.g. 12.5" required />
+                    <label htmlFor="trade-points">Points Captured (optional)</label>
+                    <input id="trade-points" type="number" step="0.01" name="pointsCaptured" value={form.pointsCaptured} onChange={handleFieldChange} placeholder="e.g. 12.5" />
                   </div>
                   <div className="form-group">
-                    <label htmlFor="trade-pnl">Profit / Loss (₹)</label>
-                    <input id="trade-pnl" type="number" step="0.01" name="pnl" value={form.pnl} onChange={handleFieldChange} placeholder="e.g. 2500" required />
-                  </div>
-                  <div className="form-group">
-                    <label htmlFor="trade-setup">Setup</label>
-                    <select id="trade-setup" name="setup" value={form.setup} onChange={handleFieldChange}>
-                      {SETUP_OPTIONS.map((setup) => (
-                        <option key={setup} value={setup}>{setup}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="form-group">
-                    <label htmlFor="trade-source">Trade Source</label>
-                    <select id="trade-source" name="source" value={form.source} onChange={handleFieldChange} disabled={form.setup === 'Live Stream'}>
-                      {SOURCE_OPTIONS.map((source) => (
-                        <option key={source} value={source}>{source}</option>
-                      ))}
-                    </select>
+                    <label htmlFor="trade-pnl">Profit / Loss ($)</label>
+                    <input id="trade-pnl" type="number" step="0.01" name="pnl" value={form.pnl} onChange={handleFieldChange} placeholder="e.g. 25 or -5" required />
+                    <p className="field-hint">
+                      Max loss for {form.strategy}: ${STRATEGY_RULES[form.strategy].maxLossPerTrade}
+                    </p>
                   </div>
                   <button type="submit" className="btn-primary" disabled={isSaving}>
                     {isSaving ? 'Saving…' : 'Save Trade'}
@@ -1198,12 +1208,20 @@ function App() {
                 </form>
               </section>
               <aside className="rules-card">
-                <h3>📋 Your Trading Rules</h3>
+                <h3>📋 Trading Rules</h3>
                 <ul className="rules-list">
-                  <li><span className="rule-num">1</span> GOLD must always be 1 lot</li>
-                  <li><span className="rule-num">2</span> Maximum 5 trades per day</li>
-                  <li><span className="rule-num">3</span> Self trades: max 2 per day</li>
-                  <li><span className="rule-num">4</span> Live Stream trades: max 3 per day</li>
+                  {STRATEGIES.map((strategy, index) => {
+                    const rules = STRATEGY_RULES[strategy]
+                    return (
+                      <li key={strategy}>
+                        <span className="rule-num">{index + 1}</span>
+                        <div className="rule-detail">
+                          <strong>{strategy}</strong>
+                          <span>Max {rules.maxTradesPerDay} trades/day · Max {rules.maxLotSize} lot(s) · Max loss ${rules.maxLossPerTrade}/trade</span>
+                        </div>
+                      </li>
+                    )
+                  })}
                 </ul>
               </aside>
             </div>
@@ -1299,29 +1317,30 @@ function App() {
                     <table>
                       <thead>
                         <tr>
-                          <th>Script</th>
-                          <th>Lot</th>
+                          <th>Strategy</th>
+                          <th>Lots</th>
                           <th>Pts</th>
                           <th>P&amp;L</th>
-                          <th>Setup</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {selectedDateTrades.map((trade) => (
+                        {selectedDateTrades.map((trade) => {
+                          const strategy = getTradeStrategy(trade)
+                          return (
                           <tr key={trade.id}>
                             <td>
-                              <span className={`tag ${trade.script === 'GOLD' ? 'tag-gold' : 'tag-btc'}`}>
-                                {trade.script}
+                              <span className={`tag tag-${strategy.toLowerCase().replace(/\s+/g, '-')}`}>
+                                {strategy}
                               </span>
                             </td>
                             <td className="mono">{trade.lotSize}</td>
-                            <td className="mono">{trade.pointsCaptured}</td>
+                            <td className="mono">{trade.pointsCaptured || '—'}</td>
                             <td className={`mono ${Number(trade.pnl) >= 0 ? 'positive' : 'negative'}`}>
                               {formatCurrency(trade.pnl)}
                             </td>
-                            <td>{trade.setup}</td>
                           </tr>
-                        ))}
+                          )
+                        })}
                       </tbody>
                     </table>
                   </div>

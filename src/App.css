@@ -444,6 +444,16 @@ td.mono {
   color: var(--profit);
 }
 
+.tag-vinbull {
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+
+.tag-stock-learners {
+  background: rgba(167, 139, 250, 0.15);
+  color: var(--btc);
+}
+
 .tag-live {
   background: rgba(206, 111, 29, 0.15);
   color: #fb923c;
@@ -644,6 +654,58 @@ td.mono {
   background: var(--bg-input);
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-subtle);
+}
+
+.rule-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.rule-detail strong {
+  color: var(--text-primary);
+  font-size: 0.85rem;
+}
+
+.rule-detail span {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.strategy-pnl-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.85rem;
+  margin-bottom: 1.25rem;
+}
+
+.strategy-pnl-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: 1rem;
+  border-top: 2px solid var(--strategy-color, var(--accent));
+}
+
+.strategy-pnl-card .strategy-name {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.strategy-pnl-card .strategy-pnl {
+  font-family: var(--font-mono);
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin: 0.35rem 0 0.15rem;
+}
+
+.strategy-pnl-card .strategy-trades {
+  font-size: 0.75rem;
+  color: var(--text-muted);
 }
 
 .rule-num {
@@ -1065,6 +1127,10 @@ td.mono {
   .header-pnl {
     width: 100%;
     text-align: left;
+  }
+
+  .strategy-pnl-row {
+    grid-template-columns: 1fr;
   }
 
   .hero-stats,
